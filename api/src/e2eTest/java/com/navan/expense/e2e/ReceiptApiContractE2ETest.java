@@ -4,6 +4,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
+import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.client.RestTestClient;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
@@ -177,6 +178,18 @@ class ReceiptApiContractE2ETest {
         api.process(receiptId).expectStatus().isBadRequest()
                 .expectBody(Map.class)
                 .value(body -> assertThat(body.get("error")).isEqualTo("OCR_TEXT_NOT_FOUND"));
+    }
+
+    @Test
+    void uploadRejectsNonImageOrMismatchedMagic() {
+        api.uploadExpectingError("notes.txt", MediaType.TEXT_PLAIN, ReceiptApiClient.utf8("hello"))
+                .expectStatus().isEqualTo(415)
+                .expectBody(Map.class)
+                .value(body -> assertThat(body.get("error")).isEqualTo("UNSUPPORTED_RECEIPT_TYPE"));
+        api.uploadExpectingError("receipt-clean.png", MediaType.IMAGE_PNG, ReceiptApiClient.utf8("this is not a png"))
+                .expectStatus().isEqualTo(415)
+                .expectBody(Map.class)
+                .value(body -> assertThat(body.get("error")).isEqualTo("UNSUPPORTED_RECEIPT_TYPE"));
     }
 
     @Test

@@ -2,6 +2,8 @@
 
 Presenter notes for a walkthrough. Commands assume the repo root. Keep two terminals: **A** for the app (`./gradlew bootRun`), **B** for tests and curls.
 
+**Copy commands from [`demo-commands.sh`](demo-commands.sh) and SQL from [`demo-queries.sql`](demo-queries.sql) in the editor** — Markdown preview does not let you copy code blocks.
+
 If Boot is already running from an earlier session, restart it so H2 console and the latest parser/health changes are live.
 
 ---
@@ -10,10 +12,12 @@ If Boot is already running from an earlier session, restart it so H2 console and
 
 **Java 21** (see [README](README.md) setup). App: `http://localhost:8080`. OCR is stubbed: upload filename stem → `fixtures/task-a/{stem}.txt`.
 
-| Terminal | Use for |
-|---|---|
-| **A** | App — `./gradlew bootRun` or `./scripts/run-api.sh` — leave this visible for audit JSON |
-| **B** | tests, curls, this script |
+
+| Terminal | Use for                                                                                 |
+| -------- | --------------------------------------------------------------------------------------- |
+| **A**    | App — `./gradlew bootRun` or `./scripts/run-api.sh` — leave this visible for audit JSON |
+| **B**    | tests, curls, this script — copy from `demo-commands.sh` |
+
 
 ```bash
 ./gradlew bootRun
@@ -28,24 +32,47 @@ curl -s http://localhost:8080/health
 
 ---
 
+
+
 ## 1. Architecture (~5 min)
 
-### Say
-
-This is a 24h take-home slice: upload a receipt, persist **taxes as their own rows**, auto-itemize, and mark `NEEDS_REVIEW` when the math does not work. We do **not** invent a balancing line. No OCR vendor and no LLM at runtime.
+Functionality is to upload a receipt, persist **taxes as their own rows**, auto-itemize, and mark `NEEDS_REVIEW` when the math does not work. We do **not** invent a balancing line. No OCR vendor and no LLM at runtime.
 
 Two Gradle modules:
 
-- **`receipt-parser`** — no Spring. Deterministic extraction from OCR text, with its own tests.
-- **`api`** — Spring Boot 4.1, JPA, H2, HTTP.
+- `receipt-parser` — no Spring. Deterministic extraction from OCR text, with its own tests and a factory to leave space for a different impl.
+- `api` — Spring Boot 4.1, JPA, H2, HTTP.
 
-The API never parses receipts itself. `ReceiptParserFactory` selects `REGEX` → `RegexReceiptParser`. A later LLM/OCR parser is a new `ReceiptParserKind`, not a rewrite of the controllers.
+The API never parses receipts itself. Spring injects both seams from config:
 
-OCR: strip the upload extension, load `{basename}.txt` from the classpath (`fixtures/task-a/`). Unknown names → `400 OCR_TEXT_NOT_FOUND`. Unparseable text → `400 RECEIPT_PARSE_FAILED` and **no** transaction (we do not persist a `FAILED` header with null merchant/date/currency).
+| Property | Default | Bean |
+|---|---|---|
+| `app.parser.kind` | `regex` | `ParserConfiguration` → `ReceiptParserFactory` → `RegexReceiptParser` |
+| `app.ocr.kind` | `fixture` | `OcrConfiguration` → `ReceiptTextResolverFactory` → `ClasspathReceiptTextResolver` |
+
+`app.ocr.kind=ocr` selects `StubOcrReceiptTextResolver` (placeholder that would read the stored file and call a vendor). A later LLM parser is a new `ReceiptParserKind`, not a rewrite of the controllers.
+
+OCR fixture: strip the upload extension, load `{basename}.txt` from the classpath (`fixtures/task-a/`). Unknown names → `400 OCR_TEXT_NOT_FOUND`. Unparseable text → `400 RECEIPT_PARSE_FAILED` and **no** transaction (we do not persist a `FAILED` header with null merchant/date/currency).
 
 ### Diagram
 
 ```mermaid
+%%{init: {
+  "theme": "base",
+  "themeVariables": {
+    "fontSize": "18px",
+    "primaryColor": "#dbeafe",
+    "primaryTextColor": "#111827",
+    "primaryBorderColor": "#1f2937",
+    "lineColor": "#1f2937",
+    "secondaryColor": "#fef3c7",
+    "tertiaryColor": "#dcfce7",
+    "clusterBkg": "#f3f4f6",
+    "clusterBorder": "#1f2937",
+    "titleColor": "#111827",
+    "nodeTextColor": "#111827"
+  }
+}}%%
 flowchart TB
   subgraph client [Caller]
     curl[curl / tests]
@@ -65,7 +92,10 @@ flowchart TB
     RS[ReceiptService]
     TS[TransactionService]
     Rec[ReconciliationPolicy]
+    OcrCfg["OcrConfiguration<br/>app.ocr.kind"]
+    ParseCfg["ParserConfiguration<br/>app.parser.kind"]
     OCR[ClasspathReceiptTextResolver]
+    StubOcr[StubOcrReceiptTextResolver]
     FS[LocalFileStorage]
     Store[ReceiptOcrStore]
 
@@ -85,8 +115,11 @@ flowchart TB
   nginx -.-> RC
   RC --> RS
   TC --> TS
-  RS --> FS & OCR & Store & TS
-  TS --> Fac
+  RS --> FS & OcrCfg & Store & TS
+  OcrCfg --> OCR
+  OcrCfg -.-> StubOcr
+  TS --> ParseCfg
+  ParseCfg --> Fac
   Fac --> Rx
   Rx --> Money
   TS --> Rec
@@ -95,15 +128,22 @@ flowchart TB
   RC & TC --> Audit
 ```
 
+
+
+
+
 ### Point at while you talk
 
-| Layer | What to say |
-|---|---|
-| Controllers | Thin HTTP. `ReceiptController` upload/process; `TransactionController` get / itemize / PATCH items. |
-| Services | File on disk + raw OCR in `receipts`. Process creates one transaction, many tax rows, many line items. Itemize **replaces items only**. |
-| Parser | Whitelist labels (`MERCHANT`, `DATE`, `CURRENCY`, `TOTAL`, `SUBTOTAL`). Unknown labels → `UNPARSEABLE`. Bare values with no labels → `MISSING`. `java.util.Currency` for ISO codes; comma decimals (`17,85`, `1.234,56`). |
-| Policy | Items + taxes vs grand total. Zero/negative amounts stay stored but `NEEDS_REVIEW`. Empty items (tax-only) → `NEEDS_REVIEW`. |
-| Cross-cutting | AOP audit on API controllers except health. Prometheus scrape. Health hits the DB. |
+
+| Layer         | What to say                                                                                                                                                                                                               |
+| ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Controllers   | Thin HTTP. `ReceiptController` upload/process; `TransactionController` get / itemize / PATCH items.                                                                                                                       |
+| Services      | File on disk + raw OCR in `receipts`. Process creates one transaction, many tax rows, many line items. Itemize **replaces items only**.                                                                                   |
+| OCR           | Injected `ReceiptTextResolver`. `fixture` maps filename → classpath text (ignores bytes). `ocr` is a vendor stub that would read `storedPath`. Unknown name → `OCR_TEXT_NOT_FOUND`.                                      |
+| Parser        | Injected `ReceiptParser` via `app.parser.kind=regex`. Whitelist labels (`MERCHANT`, `DATE`, `CURRENCY`, `TOTAL`, `SUBTOTAL`). Unknown labels → `UNPARSEABLE`. Bare values → `MISSING`. `java.util.Currency`; comma decimals. |
+| Policy        | Items + taxes vs grand total. Zero/negative amounts stay stored but `NEEDS_REVIEW`. Empty items (tax-only) → `NEEDS_REVIEW`.                                                                                              |
+| Cross-cutting | AOP audit on API controllers except health. Prometheus scrape. Health hits the DB.                                                                                                                                        |
+
 
 Data model after a successful `process`:
 
@@ -114,23 +154,51 @@ receipts 1──1 expense_transactions 1──* tax_lines
 
 `itemize_status`: `COMPLETE` | `NEEDS_REVIEW` | `FAILED` (enum exists; invalid OCR is 400 instead of a FAILED row).
 
+NB: jurisdiction not enough info for an impl
+
 ---
+
+
 
 ## 2. Validation, audit, observability, nginx (~5 min)
 
+
+
 ### Validation
 
-| Concern | Behaviour |
-|---|---|
-| Required fields | merchant, date, ISO currency, grand total. Reasons: `MISSING`, `INVALID`, `NON_NUMERIC`, `UNPARSEABLE`. |
-| Garbled vs unlabeled | Labels outside the whitelist (e.g. `MERCH#NT`, or `VENDOR:`) → `UNPARSEABLE`. Values with no labels → `MISSING`. |
-| Currency / amounts | `Currency.getInstance` (not “any 3 letters”). German `,` decimals and thousands. `€` → `EUR`. `FOO` → `INVALID`. |
-| Process on bad OCR | **400** `RECEIPT_PARSE_FAILED` + `fields[]`. Receipt + raw OCR kept; **no** transaction. |
-| Unknown upload name | **400** `OCR_TEXT_NOT_FOUND`. |
-| Itemize / PATCH bad id | **400** `INVALID_TRANSACTION_ID` (malformed UUID **or** unknown UUID). GET missing → **404**. |
-| PATCH math | **409** `ITEMIZATION_MISMATCH` with stored total vs item/tax sums. Totals are not rewritten. |
-| Mismatch receipts | Persist as-is, `NEEDS_REVIEW`, no synthetic line. |
-| Health | `SELECT 1`; **503** `{ "status": "DOWN" }` if the DB ping fails. |
+
+| Concern                | Behaviour                                                                                                        |
+| ---------------------- | ---------------------------------------------------------------------------------------------------------------- |
+| Required fields        | merchant, date, ISO currency, grand total. Reasons: `MISSING`, `INVALID`, `NON_NUMERIC`, `UNPARSEABLE`.          |
+| Garbled vs unlabeled   | Labels outside the whitelist (e.g. `MERCH#NT`, or `VENDOR:`) → `UNPARSEABLE`. Values with no labels → `MISSING`. |
+| Currency / amounts     | `Currency.getInstance` (not “any 3 letters”). German `,` decimals and thousands. `€` → `EUR`. `FOO` → `INVALID`. |
+| Process on bad OCR     | **400** `RECEIPT_PARSE_FAILED` + `fields[]`. Receipt + raw OCR kept; **no** transaction.                         |
+| Unknown upload name    | **400** `OCR_TEXT_NOT_FOUND`.                                                                                    |
+| Upload media type      | **415** `UNSUPPORTED_RECEIPT_TYPE` unless `Content-Type` is image (png/jpeg/gif/webp/bmp) or PDF **and** the magic bytes match. |
+| Itemize / PATCH bad id | **400** `INVALID_TRANSACTION_ID` (malformed UUID **or** unknown UUID). GET missing → **404**.                    |
+| PATCH math             | **409** `ITEMIZATION_MISMATCH` with stored total vs item/tax sums. Totals are not rewritten.                     |
+| Mismatch receipts      | Persist as-is, `NEEDS_REVIEW`, no synthetic line.                                                                |
+| Health                 | `SELECT 1`; **503** `{ "status": "DOWN" }` if the DB ping fails.                                                 |
+
+
+**Upload files (say this):** `POST /receipts` only accepts **image** (`png`, `jpeg`/`jpg`, `gif`, `webp`, `bmp`) or **PDF**. Two checks: the multipart `Content-Type` must be in that list, and the first bytes must be the matching signature (`89 PNG…`, `%PDF`, `FF D8 FF`, …). A `.txt` body labelled `image/png`, or `image/png` with PDF bytes, is **415** `UNSUPPORTED_RECEIPT_TYPE` — nothing is stored. OCR still keys off `filename=`, so the demo upload is a real PNG with the fixture name:
+
+```bash
+# 415 — declared type not image/PDF
+curl -s -F "file=@fixtures/task-a/receipt-clean.txt;filename=receipt-clean.png;type=text/plain" \
+  http://localhost:8080/receipts
+
+# 415 — image/png but body is not a PNG
+curl -s -F "file=@fixtures/task-a/receipt-clean.txt;filename=receipt-clean.png;type=image/png" \
+  http://localhost:8080/receipts
+
+# 200 — real PNG bytes, filename maps to receipt-clean.txt for the fixture OCR
+curl -s -F "file=@fixtures/task-a/upload.png;filename=receipt-clean.png;type=image/png" \
+  http://localhost:8080/receipts
+```
+
+
+
 
 ### Audit
 
@@ -138,26 +206,34 @@ receipts 1──1 expense_transactions 1──* tax_lines
 - One **JSON line** on logger `audit` (snake_case): method, path, status, duration_ms, outcome `SUCCESS`/`ERROR`, error code, receipt/transaction ids, upload filename/type/size.
 - **No** OCR text or file bytes in the log (multipart → filename only).
 
+
+
 ### Observability
 
-- Micrometer Prometheus registry. Scrape **`GET /actuator/prometheus`**.
+- Micrometer Prometheus registry. Scrape `GET /actuator/prometheus`.
 - Default JVM + HTTP + Hikari meters. No Prometheus/Grafana process — scrape only, ~15 minutes vs a metrics stack.
 - Custom `/health` kept for the brief; actuator health is also exposed but the demo uses `/health` + the scrape endpoint.
+
+
 
 ### Nginx (explored, not built — choice “document-only”)
 
 **Recommendation we made:** keep `./gradlew bootRun` as the scored path. A gateway does not help matching `gold.json`. The brief treats production edge (auth, TLS, rate limits) as out of scope.
 
-| If we added it later | Trade-off |
-|---|---|
-| Thin **nginx sidecar** (compose): `limit_req` by IP → **429**; optional TLS profile; Spring stays HTTP; forward `X-Forwarded-*` | Right shape for rate limit + HTTPS. ~45–90 min HTTP+limits, +30–45 TLS, +45–90 if you prove 429/HTTPS. Those tests must **not** sit in Java e2e or fixture flows flake on 429. |
-| Make compose **required** to run | Fights the brief (one Gradle command + curls). |
-| Spring Cloud Gateway / Kong / Let’s Encrypt | Extra product surface, not a 60–120 min slice. |
-| Rate limit **inside** Spring | Possible (`bucket4j`), but TLS and connection limits still want a proxy. |
+
+| If we added it later                                                                                                            | Trade-off                                                                                                                                                                      |
+| ------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Thin **nginx sidecar** (compose): `limit_req` by IP → **429**; optional TLS profile; Spring stays HTTP; forward `X-Forwarded-`* | Right shape for rate limit + HTTPS. ~45–90 min HTTP+limits, +30–45 TLS, +45–90 if you prove 429/HTTPS. Those tests must **not** sit in Java e2e or fixture flows flake on 429. |
+| Make compose **required** to run                                                                                                | Fights the brief (one Gradle command + curls).                                                                                                                                 |
+| Spring Cloud Gateway / Kong / Let’s Encrypt                                                                                     | Extra product surface, not a 60–120 min slice.                                                                                                                                 |
+| Rate limit **inside** Spring                                                                                                    | Possible (`bucket4j`), but TLS and connection limits still want a proxy.                                                                                                       |
+
 
 **Say:** “We documented the gateway; we implemented audit + Prometheus in-process because those are small Spring adds and they show up in this demo.”
 
 ---
+
+
 
 ## 3. Unit tests — run and talk through coverage (~4 min)
 
@@ -171,27 +247,37 @@ While it runs, walk the map. `./gradlew test` is **unit/WebMvc** only (parser mo
 
 ### `receipt-parser`
 
-| Test | What it proves |
-|---|---|
-| `ReceiptParserFactoryTest` | Factory default / `REGEX` → `RegexReceiptParser`. |
-| `RegexReceiptParserTest` | Gold fixtures (clean, tax-only, mismatch, 100 items, big/zero/negative, German commas). Invalid fixtures vs `gold-errors.json`. Whitelist vs unlabeled. No invented balancing line. |
-| `MoneyParserTest` | `17,85` / `1.234,56` / `1,234.56`; ISO codes via `Currency`; `€`; reject `FOO`. |
+
+| Test                       | What it proves                                                                                                                                                                      |
+| -------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `ReceiptParserFactoryTest` | Factory default / `REGEX` → `RegexReceiptParser`.                                                                                                                                   |
+| `RegexReceiptParserTest`   | Gold fixtures (clean, tax-only, mismatch, 100 items, big/zero/negative, German commas). Invalid fixtures vs `gold-errors.json`. Whitelist vs unlabeled. No invented balancing line. |
+| `MoneyParserTest`          | `17,85` / `1.234,56` / `1,234.56`; ISO codes via `Currency`; `€`; reject `FOO`.                                                                                                     |
+
+
+
 
 ### `api`
 
-| Test | What it proves |
-|---|---|
-| `HealthControllerTest` | `SELECT 1` → 200 UP; failure → 503 DOWN. |
-| `ReceiptControllerTest` | Upload id; process body; 400 parse; 400 unknown OCR name. |
-| `TransactionControllerTest` | GET / itemize / PATCH; 400 invalid id; 409 mismatch. |
-| `TransactionServiceTest` | Missing GET is 404; invalid ids 400. |
-| `DefaultReconciliationPolicyTest` | COMPLETE vs NEEDS_REVIEW; zero/negative; no fake lines. |
-| `ClasspathReceiptTextResolverTest` | Filename → fixture text. |
+
+| Test                                                 | What it proves                                                  |
+| ---------------------------------------------------- | --------------------------------------------------------------- |
+| `HealthControllerTest`                               | `SELECT 1` → 200 UP; failure → 503 DOWN.                        |
+| `ReceiptControllerTest`                              | Upload id; process body; 400 parse; 400 unknown OCR name.       |
+| `TransactionControllerTest`                          | GET / itemize / PATCH; 400 invalid id; 409 mismatch.            |
+| `TransactionServiceTest`                             | Missing GET is 404; invalid ids 400.                            |
+| `DefaultReconciliationPolicyTest`                    | COMPLETE vs NEEDS_REVIEW; zero/negative; no fake lines.         |
+| `ClasspathReceiptTextResolverTest`                   | Filename / client path → fixture text.                          |
+| `ReceiptContentValidatorTest`                        | Image/PDF content type + magic bytes; mismatch/plain text rejected. |
+| `ReceiptTextResolverFactoryTest`                     | `fixture` → classpath resolver; `ocr` → vendor stub that throws. |
 | `ApiAuditAspectTest` / `JsonSlf4jAuditPublisherTest` | SUCCESS/ERROR events; snake_case JSON; no OCR/bytes in the log. |
+
 
 **Say after BUILD SUCCESSFUL:** parser is locked to gold; HTTP mappings and policy are unit-tested without Boot-on-random-port.
 
 ---
+
+
 
 ## 4. Live curls — audit log + scrape (~6 min)
 
@@ -208,7 +294,7 @@ curl -s http://localhost:8080/health
 ### 4b. Happy path — watch terminal A
 
 ```bash
-RECEIPT_ID=$(curl -s -F "file=@fixtures/task-a/receipt-clean.txt;filename=receipt-clean.png" \
+RECEIPT_ID=$(curl -s -F "file=@fixtures/task-a/upload.png;filename=receipt-clean.png;type=image/png" \
   http://localhost:8080/receipts | python3 -c "import sys,json; print(json.load(sys.stdin)['receipt_id'])")
 echo "receipt_id=$RECEIPT_ID"
 
@@ -225,7 +311,7 @@ In **A**, two audit lines. Upload looks like:
   "outcome": "SUCCESS",
   "error": null,
   "upload_filename": "receipt-clean.png",
-  "upload_content_type": "text/plain"
+  "upload_content_type": "image/png"
 }
 ```
 
@@ -251,10 +337,12 @@ TRANSACTION_ID=<paste>
 curl -s "http://localhost:8080/transactions/$TRANSACTION_ID" | python3 -m json.tool
 ```
 
+
+
 ### 4c. Validation failure — garbled OCR
 
 ```bash
-BAD_ID=$(curl -s -F "file=@fixtures/task-a/receipt-garbled.txt;filename=receipt-garbled.png" \
+BAD_ID=$(curl -s -F "file=@fixtures/task-a/upload.png;filename=receipt-garbled.png;type=image/png" \
   http://localhost:8080/receipts | python3 -c "import sys,json; print(json.load(sys.stdin)['receipt_id'])")
 
 curl -s -X POST "http://localhost:8080/receipts/$BAD_ID/process" | python3 -m json.tool
@@ -294,17 +382,21 @@ curl -s http://localhost:8080/actuator/prometheus | head
 
 ---
 
+
+
 ## 5. Ad-hoc SQL (~4 min)
 
-In-memory H2 (`jdbc:h2:mem:navan`) lives in the Boot JVM. Console: **http://localhost:8080/h2-console**
+In-memory H2 (`jdbc:h2:mem:navan`) lives in the Boot JVM. Console: **[http://localhost:8080/h2-console](http://localhost:8080/h2-console)**
 
 Connect:
 
-| Field | Value |
-|---|---|
+
+| Field    | Value               |
+| -------- | ------------------- |
 | JDBC URL | `jdbc:h2:mem:navan` |
-| User | `sa` |
-| Password | *(empty)* |
+| User     | `sa`                |
+| Password | *(empty)*           |
+
 
 Run these in order. They assume the curls in §4 (clean process + garbled upload/process).
 
@@ -372,7 +464,11 @@ Optional extra (if you still have time): process `receipt-mismatch.pdf` via curl
 
 ---
 
+
+
 ## 6. E2E tests — talk through, then run (~5 min)
+
+
 
 ### Say before you run
 
@@ -382,21 +478,23 @@ Gold files on the classpath (`gold.json`, `gold-errors.json`) are the fixture co
 
 Walk `ReceiptApiContractE2ETest` (open the file if you can):
 
-| Test | Contract |
-|---|---|
-| `healthIsUp` | `/health` → `UP` (and therefore DB ping). |
-| `prometheusScrapeIsExposed` | `/actuator/prometheus` contains `jvm_`. |
-| `processMatchesGold` | **clean / tax-only / mismatch**: upload → process → GET → itemize. Merchant, currency, total, itemize_status, line count vs gold. |
-| `hundredItemsWithValidSubtotalAreComplete` | 100 items, subtotal skipped as an item, `COMPLETE`. |
-| `hundredItemsWithInvalidSubtotalNeedReviewAndKeepAllItems` | Still 100 items, total unchanged, `NEEDS_REVIEW`. |
-| `largeAmountsStayCompleteWhenTheyReconcile` | Big positives still `COMPLETE`. |
-| `zeroAmountsNeedReview` / `negativeAmountsNeedReview` | Persisted, but review. |
-| `mismatchMustNotInventBalancingLine` | Two items, total 18.50, `NEEDS_REVIEW`. |
-| `patchValidItemsOnCleanReceiptSucceeds` | User override that still reconciles → 200. |
-| `patchMismatchItemsReturns409` | `ITEMIZATION_MISMATCH`. |
-| `invalidFixturesReturn400AndDoNotCreateTransaction` | garbled, non-numeric, unlabeled, missing-* vs `gold-errors.json`. |
-| `unknownFilenameReturnsOcrNotFound` | 400. |
-| `itemizeAndPatchInvalidIdsReturn400` | `not-a-uuid` **and** random UUID → `INVALID_TRANSACTION_ID`. GET missing stays 404 (covered in unit tests). |
+
+| Test                                                       | Contract                                                                                                                          |
+| ---------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
+| `healthIsUp`                                               | `/health` → `UP` (and therefore DB ping).                                                                                         |
+| `prometheusScrapeIsExposed`                                | `/actuator/prometheus` contains `jvm_`.                                                                                           |
+| `processMatchesGold`                                       | **clean / tax-only / mismatch**: upload → process → GET → itemize. Merchant, currency, total, itemize_status, line count vs gold. |
+| `hundredItemsWithValidSubtotalAreComplete`                 | 100 items, subtotal skipped as an item, `COMPLETE`.                                                                               |
+| `hundredItemsWithInvalidSubtotalNeedReviewAndKeepAllItems` | Still 100 items, total unchanged, `NEEDS_REVIEW`.                                                                                 |
+| `largeAmountsStayCompleteWhenTheyReconcile`                | Big positives still `COMPLETE`.                                                                                                   |
+| `zeroAmountsNeedReview` / `negativeAmountsNeedReview`      | Persisted, but review.                                                                                                            |
+| `mismatchMustNotInventBalancingLine`                       | Two items, total 18.50, `NEEDS_REVIEW`.                                                                                           |
+| `patchValidItemsOnCleanReceiptSucceeds`                    | User override that still reconciles → 200.                                                                                        |
+| `patchMismatchItemsReturns409`                             | `ITEMIZATION_MISMATCH`.                                                                                                           |
+| `invalidFixturesReturn400AndDoNotCreateTransaction`        | garbled, non-numeric, unlabeled, missing-* vs `gold-errors.json`.                                                                 |
+| `unknownFilenameReturnsOcrNotFound`                        | 400.                                                                                                                              |
+| `itemizeAndPatchInvalidIdsReturn400`                       | `not-a-uuid` **and** random UUID → `INVALID_TRANSACTION_ID`. GET missing stays 404 (covered in unit tests).                       |
+
 
 **Say:** “E2E is extendable: add a fixture, gold row, and a `@ValueSource` name.”
 
@@ -411,10 +509,12 @@ Watch names appear. After **BUILD SUCCESSFUL**, close on: parser gold + HTTP con
 
 ---
 
+
+
 ## Cheat sheet (order of operations)
 
 1. Restart `./gradlew bootRun` if needed.
-2. Architecture diagram + module split + factory + OCR stub.
+2. Architecture diagram + module split + `app.parser.kind=regex` / `app.ocr.kind=fixture` injection.
 3. Validation / audit / Prometheus / nginx table.
 4. `./gradlew test --console=plain`.
 5. Curls: health, clean process, garbled 400 — read **audit** in the Boot terminal.

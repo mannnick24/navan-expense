@@ -4,6 +4,7 @@ import com.navan.expense.api.dto.ErrorResponse;
 import com.navan.expense.api.dto.FieldErrorResponse;
 import com.navan.expense.api.dto.MismatchResponse;
 import com.navan.expense.api.dto.ParseErrorResponse;
+import com.navan.expense.api.error.InvalidReceiptFileException;
 import com.navan.expense.api.error.InvalidTransactionIdException;
 import com.navan.expense.api.error.ItemizationMismatchException;
 import com.navan.expense.api.error.OcrTextNotFoundException;
@@ -26,6 +27,12 @@ public class ApiExceptionHandler {
                 ex.getMessage(),
                 ex.getFields().stream().map(field -> new FieldErrorResponse(field.name(), field.reason())).toList()
         );
+    }
+
+    @ExceptionHandler(InvalidReceiptFileException.class)
+    @ResponseStatus(HttpStatus.UNSUPPORTED_MEDIA_TYPE)
+    public ErrorResponse invalidReceiptFile(InvalidReceiptFileException ex) {
+        return new ErrorResponse("UNSUPPORTED_RECEIPT_TYPE", ex.getMessage());
     }
 
     @ExceptionHandler(OcrTextNotFoundException.class)

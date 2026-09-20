@@ -10,8 +10,14 @@ class ClasspathReceiptTextResolverTest {
 
     @Test
     void mapsUploadFilenameToFixtureText() {
-        assertThat(resolver.resolve("receipt-clean.png")).get().asString().contains("Cafe Mitte");
-        assertThat(resolver.resolve("receipt-tax-only.jpg")).get().asString().contains("Berlin Taxi GmbH");
-        assertThat(resolver.resolve("unknown.bin")).isEmpty();
+        assertThat(resolver.resolve("receipt-clean.png", null)).get().asString().contains("Cafe Mitte");
+        assertThat(resolver.resolve("receipt-tax-only.jpg", null)).get().asString().contains("Berlin Taxi GmbH");
+        assertThat(resolver.resolve("unknown.bin", null)).isEmpty();
+    }
+
+    @Test
+    void mapsUploadPathToFixtureText() {
+        assertThat(resolver.resolve("/tmp/uploads/receipt-clean.png", null)).get().asString().contains("Cafe Mitte");
+        assertThat(resolver.resolve("C:\\Users\\me\\receipt-clean.png", null)).get().asString().contains("Cafe Mitte");
     }
 }

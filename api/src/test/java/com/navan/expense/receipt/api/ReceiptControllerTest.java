@@ -3,6 +3,7 @@ package com.navan.expense.receipt.api;
 import com.navan.expense.api.ApiExceptionHandler;
 import com.navan.expense.api.dto.ReceiptIdResponse;
 import com.navan.expense.api.dto.TransactionResponse;
+import com.navan.expense.api.error.InvalidReceiptFileException;
 import com.navan.expense.api.error.OcrTextNotFoundException;
 import com.navan.expense.parser.ReceiptParseException;
 import com.navan.expense.receipt.service.ReceiptService;
@@ -46,6 +47,15 @@ class ReceiptControllerTest {
         mockMvc.perform(multipart("/receipts").file(file))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.receipt_id").value(id.toString()));
+    }
+
+    @Test
+    void uploadRejectsUnsupportedType() throws Exception {
+        when(receipts.upload(any())).thenThrow(new InvalidReceiptFileException("Unsupported content type text/plain; allow image or PDF"));
+        MockMultipartFile file = new MockMultipartFile("file", "notes.txt", "text/plain", "hello".getBytes());
+        mockMvc.perform(multipart("/receipts").file(file))
+                .andExpect(status().isUnsupportedMediaType())
+                .andExpect(jsonPath("$.error").value("UNSUPPORTED_RECEIPT_TYPE"));
     }
 
     @Test

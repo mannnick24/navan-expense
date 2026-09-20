@@ -2,11 +2,15 @@ package com.navan.expense.e2e;
 
 import org.springframework.test.web.servlet.client.RestTestClient;
 import org.springframework.core.io.ByteArrayResource;
+import org.springframework.http.HttpEntity;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.util.LinkedMultiValueMap;
 import org.springframework.util.MultiValueMap;
 
 import java.nio.charset.StandardCharsets;
+import java.util.Arrays;
+import java.util.Locale;
 import java.util.Map;
 import java.util.UUID;
 
@@ -27,9 +31,12 @@ final class ReceiptApiClient {
     }
 
     UUID upload(String filename, byte[] bytes) {
+        byte[] body = withMagic(filename, bytes);
+        HttpHeaders fileHeaders = new HttpHeaders();
+        fileHeaders.setContentType(mediaType(filename));
         MultiValueMap<String, Object> parts = new LinkedMultiValueMap<>();
-        parts.add("file", new NamedBytes(filename, bytes));
-        Map<?, ?> body = client.post()
+        parts.add("file", new HttpEntity<>(new NamedBytes(filename, body), fileHeaders));
+        Map<?, ?> bodyJson = client.post()
                 .uri("/receipts")
                 .contentType(MediaType.MULTIPART_FORM_DATA)
                 .body(parts)
@@ -38,7 +45,19 @@ final class ReceiptApiClient {
                 .expectBody(Map.class)
                 .returnResult()
                 .getResponseBody();
-        return UUID.fromString(String.valueOf(body.get("receipt_id")));
+        return UUID.fromString(String.valueOf(bodyJson.get("receipt_id")));
+    }
+
+    RestTestClient.ResponseSpec uploadExpectingError(String filename, MediaType contentType, byte[] bytes) {
+        HttpHeaders fileHeaders = new HttpHeaders();
+        fileHeaders.setContentType(contentType);
+        MultiValueMap<String, Object> parts = new LinkedMultiValueMap<>();
+        parts.add("file", new HttpEntity<>(new NamedBytes(filename, bytes), fileHeaders));
+        return client.post()
+                .uri("/receipts")
+                .contentType(MediaType.MULTIPART_FORM_DATA)
+                .body(parts)
+                .exchange();
     }
 
     RestTestClient.ResponseSpec process(UUID receiptId) {
@@ -76,5 +95,42 @@ final class ReceiptApiClient {
 
     static byte[] utf8(String value) {
         return value.getBytes(StandardCharsets.UTF_8);
+    }
+
+    private static MediaType mediaType(String filename) {
+        String lower = filename.toLowerCase(Locale.ROOT);
+        if (lower.endsWith(".pdf")) {
+            return MediaType.APPLICATION_PDF;
+        }
+        if (lower.endsWith(".jpg") || lower.endsWith(".jpeg")) {
+            return MediaType.IMAGE_JPEG;
+        }
+        return MediaType.IMAGE_PNG;
+    }
+
+    private static byte[] withMagic(String filename, byte[] payload) {
+        String lower = filename.toLowerCase(Locale.ROOT);
+        if (lower.endsWith(".pdf")) {
+            return startsWith(payload, new byte[]{'%', 'P', 'D', 'F'}) ? payload : concat(new byte[]{'%', 'P', 'D', 'F', '-'}, payload);
+        }
+        if (lower.endsWith(".jpg") || lower.endsWith(".jpeg")) {
+            byte[] jpeg = {(byte) 0xFF, (byte) 0xD8, (byte) 0xFF};
+            return startsWith(payload, jpeg) ? payload : concat(jpeg, payload);
+        }
+        byte[] png = {(byte) 0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A};
+        return startsWith(payload, png) ? payload : concat(png, payload);
+    }
+
+    private static boolean startsWith(byte[] haystack, byte[] needle) {
+        if (haystack.length < needle.length) {
+            return false;
+        }
+        return Arrays.equals(Arrays.copyOfRange(haystack, 0, needle.length), needle);
+    }
+
+    private static byte[] concat(byte[] prefix, byte[] rest) {
+        byte[] out = Arrays.copyOf(prefix, prefix.length + rest.length);
+        System.arraycopy(rest, 0, out, prefix.length, rest.length);
+        return out;
     }
 }

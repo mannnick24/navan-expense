@@ -1,11 +1,17 @@
 # navan-expense
+This is Nick Mann's answer to the Navan code excersize to handle Receipt upload, tax capture, and auto-itemize HTTP API. as per task-a
 
-Receipt upload, tax capture, and auto-itemize HTTP API.
+## impl notes
+The API listens on `http://localhost:8080`. by default H2 console: `http://localhost:8080/h2-console` (JDBC URL `jdbc:h2:mem:navan`, user `sa`, empty password).
 
 OCR is **stubbed**: uploaded filenames map to the fixture text in `fixtures/task-a/`. No OCR vendor or LLM API is called.
 
-## Setup
+`ReceiptTextResolver` is injected from `OcrConfiguration`. Default `app.ocr.kind=fixture` (classpath fixtures). `app.ocr.kind=ocr` selects `StubOcrReceiptTextResolver`, a placeholder for a vendor that would read the stored file.
 
+`ReceiptParser` is injected from `ParserConfiguration`. Default `app.parser.kind=regex` selects `RegexReceiptParser`.
+
+
+## Setup
 1. **Java 21** on the `PATH` (Temurin / Oracle / OpenJDK). Confirm:
 
    ```bash
@@ -25,27 +31,15 @@ OCR is **stubbed**: uploaded filenames map to the fixture text in `fixtures/task
 Nothing else to install: H2 is in-process, fixtures are in the repo, no Docker, no OCR key.
 
 ## Run (dev)
+quickest is to run the run-api.sh script
 
+./scripts/run-api.sh
+
+or
 ```bash
 ./gradlew bootRun
 ```
 
-The API listens on `http://localhost:8080`. H2 console: `http://localhost:8080/h2-console` (JDBC URL `jdbc:h2:mem:navan`, user `sa`, empty password).
-
-## Fat jar (cmdline)
-
-Spring Boot `bootJar` is a **fat / executable jar** (parser module + Spring + H2 inside).
-
-```bash
-./gradlew bootJar
-java -jar api/build/libs/navan-expense.jar
-```
-
-Same thing via script (builds the jar if missing):
-
-```bash
-./scripts/run-api.sh
-```
 
 Pass Spring args through:
 
@@ -102,6 +96,8 @@ Default e2e uses port 18080 so it does not collide with a demo `bootRun` on 8080
 
 Unknown filenames: `POST /receipts/{id}/process` returns `400` `OCR_TEXT_NOT_FOUND`.
 
+Upload only accepts **image** (`png`, `jpeg`, `gif`, `webp`, `bmp`) or **PDF**. The `Content-Type` part header must match the file signature (magic bytes). A `.txt` body with `filename=receipt-clean.png` is **415** `UNSUPPORTED_RECEIPT_TYPE`. Use `fixtures/task-a/upload.png` (or `upload.pdf`) and set `filename=` to the fixture stem the OCR stub expects.
+
 ## Example curls
 
 Health:
@@ -119,7 +115,7 @@ curl -s http://localhost:8080/actuator/prometheus | head
 Upload and process a clean receipt:
 
 ```bash
-RECEIPT_ID=$(curl -s -F "file=@fixtures/task-a/receipt-clean.txt;filename=receipt-clean.png" \
+RECEIPT_ID=$(curl -s -F "file=@fixtures/task-a/upload.png;filename=receipt-clean.png;type=image/png" \
   http://localhost:8080/receipts | python3 -c "import sys,json; print(json.load(sys.stdin)['receipt_id'])")
 
 curl -s -X POST http://localhost:8080/receipts/$RECEIPT_ID/process
@@ -148,7 +144,7 @@ curl -s -X PATCH http://localhost:8080/transactions/$TRANSACTION_ID/items \
 Parse failure (400):
 
 ```bash
-BAD_ID=$(curl -s -F "file=@fixtures/task-a/receipt-garbled.txt;filename=receipt-garbled.png" \
+BAD_ID=$(curl -s -F "file=@fixtures/task-a/upload.png;filename=receipt-garbled.png;type=image/png" \
   http://localhost:8080/receipts | python3 -c "import sys,json; print(json.load(sys.stdin)['receipt_id'])")
 curl -s -X POST http://localhost:8080/receipts/$BAD_ID/process
 ```

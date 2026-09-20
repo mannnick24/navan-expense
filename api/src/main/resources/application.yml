@@ -39,3 +39,7 @@ management:
 app:
   storage:
     dir: ${java.io.tmpdir}/navan-receipts
+  ocr:
+    kind: fixture
+  parser:
+    kind: regex

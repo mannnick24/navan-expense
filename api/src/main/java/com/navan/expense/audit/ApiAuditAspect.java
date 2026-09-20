@@ -1,5 +1,6 @@
 package com.navan.expense.audit;
 
+import com.navan.expense.api.error.InvalidReceiptFileException;
 import com.navan.expense.api.error.InvalidTransactionIdException;
 import com.navan.expense.api.error.ItemizationMismatchException;
 import com.navan.expense.api.error.OcrTextNotFoundException;
@@ -118,6 +119,9 @@ public class ApiAuditAspect {
                 || ex instanceof InvalidTransactionIdException) {
             return 400;
         }
+        if (ex instanceof InvalidReceiptFileException) {
+            return 415;
+        }
         if (ex instanceof ItemizationMismatchException) {
             return 409;
         }
@@ -133,6 +137,9 @@ public class ApiAuditAspect {
         }
         if (ex instanceof OcrTextNotFoundException) {
             return "OCR_TEXT_NOT_FOUND";
+        }
+        if (ex instanceof InvalidReceiptFileException) {
+            return "UNSUPPORTED_RECEIPT_TYPE";
         }
         if (ex instanceof InvalidTransactionIdException) {
             return "INVALID_TRANSACTION_ID";
