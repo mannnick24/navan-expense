@@ -137,43 +137,27 @@ receipts 1──1 expense_transactions 1──* tax_lines
 `itemize_status`: `COMPLETE` | `NEEDS_REVIEW` | `FAILED` (enum exists; invalid OCR is 400 instead of a FAILED row).
 
 ```mermaid
-%%{init: {
-  "theme": "base",
-  "themeVariables": {
-    "fontSize": "18px",
-    "primaryColor": "#dbeafe",
-    "primaryTextColor": "#111827",
-    "primaryBorderColor": "#1f2937",
-    "lineColor": "#1f2937",
-    "secondaryColor": "#fef3c7",
-    "tertiaryColor": "#dcfce7",
-    "clusterBkg": "#f3f4f6",
-    "clusterBorder": "#1f2937",
-    "titleColor": "#111827",
-    "nodeTextColor": "#111827"
-  }
-}}%%
 flowchart TB
   subgraph client [Caller]
-    curl[curl / tests]
+    curl["curl and tests"]
   end
 
   subgraph edge [Not in this slice]
-    nginx["nginx — rate limit + TLS<br/>document-only"]
+    nginx["nginx rate-limit and TLS, document-only"]
   end
 
-  subgraph api [api module — Spring Boot 4]
+  subgraph api [api module - Spring Boot 4]
     RC[ReceiptController]
     TC[TransactionController]
-    HC["HealthController<br/>SELECT 1"]
-    Act["Actuator<br/>/actuator/prometheus"]
-    Audit["ApiAuditAspect → audit logger<br/>JSON, not health"]
+    HC["HealthController SELECT 1"]
+    Act["Actuator prometheus"]
+    Audit["ApiAuditAspect JSON audit"]
 
     RS[ReceiptService]
     TS[TransactionService]
     Rec[ReconciliationPolicy]
-    OcrCfg["OcrConfiguration<br/>app.ocr.kind"]
-    ParseCfg["ParserConfiguration<br/>app.parser.kind"]
+    OcrCfg["OcrConfiguration app.ocr.kind"]
+    ParseCfg["ParserConfiguration app.parser.kind"]
     OCR[ClasspathReceiptTextResolver]
     StubOcr[StubOcrReceiptTextResolver]
     FS[LocalFileStorage]
@@ -188,14 +172,20 @@ flowchart TB
   subgraph parser [receipt-parser module]
     Fac[ReceiptParserFactory]
     Rx[RegexReceiptParser]
-    Money[MoneyParser<br/>ISO Currency + DE/US amounts]
+    Money["MoneyParser ISO Currency"]
   end
 
-  curl --> RC & TC & HC & Act
+  curl --> RC
+  curl --> TC
+  curl --> HC
+  curl --> Act
   nginx -.-> RC
   RC --> RS
   TC --> TS
-  RS --> FS & OcrCfg & Store & TS
+  RS --> FS
+  RS --> OcrCfg
+  RS --> Store
+  RS --> TS
   OcrCfg --> OCR
   OcrCfg -.-> StubOcr
   TS --> ParseCfg
@@ -204,6 +194,9 @@ flowchart TB
   Rx --> Money
   TS --> Rec
   RS --> R
-  TS --> TX & Tax & LI
-  RC & TC --> Audit
+  TS --> TX
+  TS --> Tax
+  TS --> LI
+  RC --> Audit
+  TC --> Audit
 ```
