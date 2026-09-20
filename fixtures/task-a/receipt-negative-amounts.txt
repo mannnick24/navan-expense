@@ -1,0 +1,10 @@
+MERCHANT: Returns Desk
+DATE: 2026-03-12
+CURRENCY: EUR
+
+Refund widget                 -5.00
+Restocking                    -1.00
+
+Subtotal                      -6.00
+VAT 19%                       -1.14
+TOTAL                         -7.14

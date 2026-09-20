@@ -1,0 +1,51 @@
+{
+  "receipt-garbled": {
+    "error": "RECEIPT_PARSE_FAILED",
+    "fields": [
+      { "name": "merchant", "reason": "UNPARSEABLE" },
+      { "name": "date", "reason": "UNPARSEABLE" },
+      { "name": "currency", "reason": "UNPARSEABLE" },
+      { "name": "grand_total", "reason": "UNPARSEABLE" }
+    ]
+  },
+  "receipt-non-numeric": {
+    "error": "RECEIPT_PARSE_FAILED",
+    "fields": [
+      { "name": "date", "reason": "INVALID" },
+      { "name": "grand_total", "reason": "NON_NUMERIC" }
+    ]
+  },
+  "receipt-unlabeled": {
+    "error": "RECEIPT_PARSE_FAILED",
+    "fields": [
+      { "name": "merchant", "reason": "MISSING" },
+      { "name": "date", "reason": "MISSING" },
+      { "name": "currency", "reason": "MISSING" },
+      { "name": "grand_total", "reason": "MISSING" }
+    ]
+  },
+  "receipt-missing-merchant": {
+    "error": "RECEIPT_PARSE_FAILED",
+    "fields": [
+      { "name": "merchant", "reason": "MISSING" }
+    ]
+  },
+  "receipt-missing-date": {
+    "error": "RECEIPT_PARSE_FAILED",
+    "fields": [
+      { "name": "date", "reason": "MISSING" }
+    ]
+  },
+  "receipt-missing-currency": {
+    "error": "RECEIPT_PARSE_FAILED",
+    "fields": [
+      { "name": "currency", "reason": "MISSING" }
+    ]
+  },
+  "receipt-missing-total": {
+    "error": "RECEIPT_PARSE_FAILED",
+    "fields": [
+      { "name": "grand_total", "reason": "MISSING" }
+    ]
+  }
+}

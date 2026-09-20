@@ -1,0 +1,11 @@
+Cafe Mitte
+2026-03-12
+EUR
+
+Espresso                    3.50
+Sandwich                    8.90
+Mineral water               2.60
+
+15.00
+2.85
+17.85

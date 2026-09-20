@@ -1,0 +1,113 @@
+{
+  "receipt-clean": {
+    "merchant": "Cafe Mitte",
+    "date": "2026-03-12",
+    "currency": "EUR",
+    "grand_total": 17.85,
+    "taxes": [{ "name": "VAT", "rate": 0.19, "amount": 2.85 }],
+    "line_items": [
+      { "description": "Espresso", "amount": 3.5 },
+      { "description": "Sandwich", "amount": 8.9 },
+      { "description": "Mineral water", "amount": 2.6 }
+    ],
+    "itemize_status": "COMPLETE",
+    "notes": "Item amounts are net in this gold file; accepting gross lines that still reconcile is OK if documented."
+  },
+  "receipt-tax-only": {
+    "merchant": "Berlin Taxi GmbH",
+    "date": "2026-03-12",
+    "currency": "EUR",
+    "grand_total": 24.0,
+    "taxes": [{ "name": "VAT", "rate": 0.19, "amount": 3.83 }],
+    "line_items": [],
+    "itemize_status": "NEEDS_REVIEW",
+    "notes": "No reliable items; one fallback item equal to total is acceptable if needs_review is still set."
+  },
+  "receipt-mismatch": {
+    "merchant": "Hotel Shop",
+    "date": "2026-03-13",
+    "currency": "EUR",
+    "grand_total": 18.5,
+    "taxes": [{ "name": "VAT", "rate": 0.19, "amount": 1.9 }],
+    "line_items": [
+      { "description": "Water", "amount": 4.0 },
+      { "description": "Snacks", "amount": 6.0 }
+    ],
+    "itemize_status": "NEEDS_REVIEW",
+    "notes": "Must NOT add a balancing line or change grand_total to 11.90 / 10.00."
+  },
+  "receipt-100-items": {
+    "merchant": "Bulk Mart",
+    "date": "2026-03-12",
+    "currency": "EUR",
+    "grand_total": 119.0,
+    "taxes": [{ "name": "VAT", "rate": 0.19, "amount": 19.0 }],
+    "line_item_count": 100,
+    "itemize_status": "COMPLETE",
+    "notes": "100 net items at 1.00; Subtotal 100.00 + VAT 19.00 = TOTAL 119.00. Subtotal is not a line item."
+  },
+  "receipt-100-mismatch": {
+    "merchant": "Bulk Mart",
+    "date": "2026-03-12",
+    "currency": "EUR",
+    "grand_total": 250.0,
+    "taxes": [{ "name": "VAT", "rate": 0.19, "amount": 19.0 }],
+    "line_item_count": 100,
+    "itemize_status": "NEEDS_REVIEW",
+    "notes": "Subtotal 80.00 does not match item sum 100.00; must NOT add a balancing line or change grand_total."
+  },
+  "receipt-big-amounts": {
+    "merchant": "Aerospace Supply",
+    "date": "2026-03-12",
+    "currency": "EUR",
+    "grand_total": 4165000000.00,
+    "taxes": [{ "name": "VAT", "rate": 0.19, "amount": 665000000.00 }],
+    "line_items": [
+      { "description": "Jet engine", "amount": 1000000000.00 },
+      { "description": "Fuselage", "amount": 2000000000.00 },
+      { "description": "Avionics", "amount": 500000000.00 }
+    ],
+    "itemize_status": "COMPLETE",
+    "notes": "Large net amounts still COMPLETE when items + VAT = total."
+  },
+  "receipt-zero-amounts": {
+    "merchant": "Complimentary Desk",
+    "date": "2026-03-12",
+    "currency": "EUR",
+    "grand_total": 0.0,
+    "taxes": [{ "name": "VAT", "rate": 0.19, "amount": 0.0 }],
+    "line_items": [
+      { "description": "Sample", "amount": 0.0 },
+      { "description": "Brochure", "amount": 0.0 }
+    ],
+    "itemize_status": "NEEDS_REVIEW",
+    "notes": "Zero amounts persist but itemize_status is NEEDS_REVIEW even if the math is 0."
+  },
+  "receipt-german": {
+    "merchant": "Cafe Mitte",
+    "date": "2026-03-12",
+    "currency": "EUR",
+    "grand_total": 17.85,
+    "taxes": [{ "name": "VAT", "rate": 0.19, "amount": 2.85 }],
+    "line_items": [
+      { "description": "Espresso", "amount": 3.5 },
+      { "description": "Sandwich", "amount": 8.9 },
+      { "description": "Mineral water", "amount": 2.6 }
+    ],
+    "itemize_status": "COMPLETE",
+    "notes": "German decimal commas and optional thousands separators parse to the same amounts as receipt-clean."
+  },
+  "receipt-negative-amounts": {
+    "merchant": "Returns Desk",
+    "date": "2026-03-12",
+    "currency": "EUR",
+    "grand_total": -7.14,
+    "taxes": [{ "name": "VAT", "rate": 0.19, "amount": -1.14 }],
+    "line_items": [
+      { "description": "Refund widget", "amount": -5.0 },
+      { "description": "Restocking", "amount": -1.0 }
+    ],
+    "itemize_status": "NEEDS_REVIEW",
+    "notes": "Negative amounts persist but itemize_status is NEEDS_REVIEW even if items + VAT = total."
+  }
+}

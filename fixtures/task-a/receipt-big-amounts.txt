@@ -1,0 +1,11 @@
+MERCHANT: Aerospace Supply
+DATE: 2026-03-12
+CURRENCY: EUR
+
+Jet engine                1000000000.00
+Fuselage                  2000000000.00
+Avionics                   500000000.00
+
+Subtotal                  3500000000.00
+VAT 19%                    665000000.00
+TOTAL                     4165000000.00

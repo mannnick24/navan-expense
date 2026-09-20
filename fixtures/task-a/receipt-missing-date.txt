@@ -1,0 +1,10 @@
+MERCHANT: Cafe Mitte
+CURRENCY: EUR
+
+Espresso                    3.50
+Sandwich                    8.90
+Mineral water               2.60
+
+Subtotal                   15.00
+VAT 19%                     2.85
+TOTAL                      17.85
